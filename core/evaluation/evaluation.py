@@ -1,5 +1,6 @@
 import os
 from typing import List, Dict
+import json
 
 class OfflineEvaluator:
     """
@@ -77,7 +78,7 @@ class LLMJudgeEvaluator:
         self.llm_client = llm_client
         self.model_name = os.getenv("AI_MODEL_DEPLOYMENT_NAME")
 
-    async def _judge(self, system_prompt: str, user_prompt: str) -> float:
+    async def _judge(self, system_prompt: str, user_prompt: str) -> Dict:
         """
         调用 LLM 进行评分，返回 [0, 1]
         """
@@ -90,14 +91,24 @@ class LLMJudgeEvaluator:
             temperature=0
         )
 
-        score_text = response.choices[0].message.content.strip()
+        text = response.choices[0].message.content.strip()
 
         try:
-            score = float(score_text)
+            data = json.loads(text)
+
+            score = float(data.get("score", 0))
+            reason = data.get("reason", "")
+
             score = max(1.0, min(score, 5.0))
-            return score / 5.0
+            return {
+                "score": score / 5.0,
+                "reason": reason
+            }
         except:
-            return 0.0
+            return {
+                "score": 0.0,
+                "reason": "parse_failed"
+            }
     
     # Retrieval Relevance
     async def judge_retrieval_relevance(self, query: str, docs: List[Dict]) -> float:
@@ -117,7 +128,12 @@ class LLMJudgeEvaluator:
         4 = Mostly relevant
         5 = Highly relevant
 
-        Only output one number between 1 and 5.
+        Return ONLY valid JSON:
+
+        {
+        "score": integer from 1 to 5,
+        "reason": string explaining why this score was given, otherwise None
+        }
         """
 
         user_prompt = f"""
@@ -128,7 +144,7 @@ class LLMJudgeEvaluator:
         {context}
 
         Evaluate how relevant the retrieved documents are to the query.
-        Only output one number between 1 and 5.
+        Return JSON only.
         """
 
         return await self._judge(system_prompt, user_prompt)
@@ -150,7 +166,12 @@ class LLMJudgeEvaluator:
         4 = The answer is mostly supported
         5 = The answer is fully supported by the retrieved documents
 
-        Only output one number between 1 and 5.
+        Return ONLY JSON:
+
+        {
+        "score": integer from 1 to 5,
+        "reason": string explaining why this score was given, otherwise None
+        }
         """
 
         user_prompt = f"""
@@ -164,7 +185,7 @@ class LLMJudgeEvaluator:
         {answer}
 
         Evaluate whether the generated answer is faithful to the retrieved documents.
-        Only output one number between 1 and 5.
+        Return JSON only.
         """
 
         return await self._judge(system_prompt, user_prompt)
@@ -186,7 +207,12 @@ class LLMJudgeEvaluator:
         4 = The answer mostly addresses the question
         5 = The answer fully answers the question
 
-        Only output one number between 1 and 5.
+        Return ONLY JSON:
+
+        {
+        "score": integer from 1 to 5,
+        "reason": string explaining why this score was given, otherwise None
+        }
         """
 
         user_prompt = f"""
@@ -197,7 +223,7 @@ class LLMJudgeEvaluator:
         {answer}
 
         Evaluate how well the answer addresses the user's query.
-        Only output one number between 1 and 5.
+        Return JSON only.
         """
 
         return await self._judge(system_prompt, user_prompt)
@@ -207,19 +233,25 @@ class LLMJudgeEvaluator:
         """
         汇总评估
         """
-        retrieval_score = await self.judge_retrieval_relevance(query, retrieved_docs)
-        faithfulness_score = await self.judge_faithfulness(query, retrieved_docs, answer)
-        answer_score = await self.judge_answer_relevanve(query, answer)
+        retrieval = await self.judge_retrieval_relevance(query, retrieved_docs)
+        faithfulness = await self.judge_faithfulness(query, retrieved_docs, answer)
+        answer = await self.judge_answer_relevanve(query, answer)
 
         final_score = (
-            0.3 * retrieval_score + 
-            0.4 * faithfulness_score + 
-            0.3 * answer_score
+            0.3 * retrieval["score"] + 
+            0.4 * faithfulness["score"] + 
+            0.3 * answer["score"]
         )
-
+        
         return {
-            "retrieval_relevance": retrieval_score,
-            "faithfulness": faithfulness_score,
-            "answer_relevance": answer_score,
+            "retrieval_relevance": retrieval["score"],
+            "retrieval_reason": retrieval["reason"],
+
+            "faithfulness": faithfulness["score"],
+            "faithfulness_reason": faithfulness["reason"],
+
+            "answer_relevance": answer["score"],
+            "answer_reason": answer["reason"],
+
             "final_score": final_score
-        }
+            }

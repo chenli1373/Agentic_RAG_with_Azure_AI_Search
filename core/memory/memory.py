@@ -3,6 +3,9 @@ import os
 from datetime import datetime
 from typing import List, Dict, Optional
 import uuid
+import json
+# from dotenv import load_dotenv
+# load_dotenv()
 
 class Memory:
     def __init__(self, db_name: str):
@@ -161,32 +164,40 @@ class Memory:
     def _create_bad_case_table(self):
         conn = self._get_connection()
         conn.execute("""CREATE TABLE IF NOT EXISTS bad_cases (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                       id INTEGER PRIMARY KEY AUTOINCREMENT,
                         session_id TEXT,
-                        stage TEXT,
+
+                        stage TEXT,              -- query_refine / retrieval / answer / critic
                         query TEXT,
-                        input TEXT,
-                        output TEXT,
-                        score REAL,
-                        reason TEXT,
+
+                        input TEXT,              -- 输入 state 或 prompt（JSON string）
+                        output TEXT,             -- 模型输出（JSON or text）
+
+                        score REAL,              -- critic score
+                        reason TEXT,             -- critic reason / failure reason
+
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
         conn.close()
     
     def save_bad_cases(self,
                        session_id: str,
-                       stage: str,
-                       query: str,
-                       input_data: str,
-                       output_data: str,
-                       score: float,
-                       reason: str):
+                        stage: str,
+                        query: str,
+                        input_data,
+                        output_data,
+                        score: float,
+                        reason: str):
         conn = self._get_connection()
         cursor = conn.cursor()
+
+        # 统一序列化（防止 dict/list 直接写入报错）
+        input_str = json.dumps(input_data, ensure_ascii=False) if isinstance(input_data, (dict, list)) else str(input_data)
+        output_str = json.dumps(output_data, ensure_ascii=False) if isinstance(output_data, (dict, list)) else str(output_data)
 
         cursor.execute("""INSERT INTO bad_cases (
                        session_id, stage, query, input, output, score, reason)
                         VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                        (session_id, stage, query, input_data, output_data, score, reason))
+                        (session_id, stage, query, input_str, output_str, score, reason))
         conn.commit()
         conn.close()
 
@@ -237,6 +248,20 @@ class Memory:
         conn.commit()
         conn.close()
     
+    def delete_bad_case_table(self):
+        conn = self._get_connection()
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute("DROP TABLE IF EXISTS bad_cases")
+            conn.commit()
+            print("bad_cases 表结构已删除")
+        except Exception as e:
+            print(f"删除 bad_cases 表失败: {e}")
+            conn.rollback()
+        finally:
+            conn.close()
+    
     """
     #############################################
     索引记录表，记录哪些内容已经上传
@@ -279,3 +304,9 @@ class Memory:
             (session_id,))
         conn.commit()
         conn.close()
+
+
+# if __name__ == "__main__":
+#     memory = Memory(db_name=os.getenv("DB_NAME"))
+#     print("初始化成功")
+    

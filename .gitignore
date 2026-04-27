@@ -5,3 +5,9 @@ data/*
 memory.db
 QA.json
 *.png
+*.rar
+config/__pycache__
+core/evaluation/__pycache__
+core/memory/__pycache__
+core/rag/__pycache__
+services/__pycache__

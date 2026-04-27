@@ -172,7 +172,8 @@ class SearchIndexManager:
             if memory.is_source_indexed(source):
                 print(f"跳过已经上传的文件：{source}")
                 continue
-
+            
+            print(f"正在上传新的文件：{source}")
             docs = self.load_and_split_document([source])
             await self.upload_documents(docs)
             memory.mark_source_indexed(source)
